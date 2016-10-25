@@ -9,8 +9,8 @@ So, long story short: this script will inventory group memberships - both local 
 #### Requires: 
 * PowerShell v4 (lightly tested) or v5 (heavily tested)
 * The PowerShell ActiveDirectory module
-** On Servers, it's a Features (as in Add Roles and Features) under Remote Server Administration Tools->AD DS and AD LDS Tools
-** On Workstations, search Microsoft's site for the RSAT (Remote Server Administration Tools) package - i.e., it's an add-on
+  * On Servers, it's a Features (as in Add Roles and Features) under Remote Server Administration Tools->AD DS and AD LDS Tools
+  * On Workstations, search Microsoft's site for the RSAT (Remote Server Administration Tools) package - i.e., it's an add-on
 
 #### Features: 
 * Recursive!
