@@ -1,8 +1,8 @@
-﻿<# 
-.SYNOPSIS 
-Recursive Local and AD Group Membership 
+﻿<#
+.SYNOPSIS
+Recursive Local and AD Group Membership
 
-.DESCRIPTION 
+.DESCRIPTION
 This script will inventory group memberships - both local system and AD - and do it recusively - both local system and AD.
 
 Features:
@@ -44,46 +44,46 @@ you can output numerous fields as a nice, native PowerShell object - for piping 
 .PARAMETER  LevelIndicator
     Use this char as the tree depth indicator (Default is hyphen)
 
-.EXAMPLE 
+.EXAMPLE
     PS C:\> .\Get-GroupMembership.ps1 -Computer ThatMachine -Group Administrators
 
     Outputs the group members from ThatMachine
 
-.EXAMPLE 
+.EXAMPLE
     PS C:\> get-content computers.txt | .\Get-GroupMembership.ps1 -Group Administrators
 
     Outputs the group members from all systems listed in the file computers.txt
 
-.EXAMPLE 
+.EXAMPLE
     PS C:\> ".", "server1", "server2" | .\Get-GroupMembership.ps1 -Group Administrators
 
     Outputs the group members from the local system, server1, and server2
 
-.EXAMPLE 
+.EXAMPLE
     PS C:\> .\Get-GroupMembership.ps1 -Computer ThatMachine -Group Administrators -raw
 
     Outputs a PSObject for further modification or piping to additional cmdlets
 
-.EXAMPLE 
+.EXAMPLE
     PS C:\> .\Get-GroupMembership.ps1 -Computer ThatMachine -Group Administrators -picture
 
     Creates a .png of the data, named a la computer_group_date-time
 
-.EXAMPLE 
+.EXAMPLE
     PS C:\> .\Get-GroupMembership.ps1 -Group Administrators
-    
+
     Outputs the group members from the current domain
 
-.EXAMPLE 
+.EXAMPLE
     PS C:\> .\Get-GroupMembership.ps1 -Domain MyADDomain -Group Administrators
 
     Outputs the group members from the domain MyADDomain
 
-#> 
+#>
 
 
 [CmdletBinding(SupportsShouldProcess = $false)]
-param ( 
+param (
     [parameter(Mandatory = $false, ValueFromPipeline = $True, ValueFromPipelineByPropertyName = $true)]
     [Alias('CN', '__Server', 'ComputerName', 'IPAddress', 'Name', 'NetBiosName')]
     [string[]]$Computer,
@@ -134,12 +134,12 @@ Begin {
             [String] $System,
             [String] $HomeDomain
         )
-    
+
         $theGroup = Get-ADGroup -Identity $group -Server $HomeDomain
 
         $results = Get-ADGroupMember -Identity $group -Server $HomeDomain | Sort-Object SamAccountName
         $TotalMembers = $results.count
-        
+
         TheObject -sSam $theGroup.SamAccountName -sName $theGroup.Name -sScope $HomeDomain -level $level -sUserOrGroup "Group" -sEnabled "" -sParent $parent -iTotal $TotalMembers -sSystem $System
 
         $counter = 0
@@ -151,21 +151,28 @@ Begin {
                 $Activity = "Getting members of {0} on {1}" -f $group, $WhatIsTheDomain
                 Try {
                     Write-Progress -Id ($level + 1) -Activity $Activity -PercentComplete (($counter / $TotalMembers ) * 100) -Status ("Found {0}" -f $_.SamAccountName)
-                } Catch { 
-                    "Non-Fatal Error with ProgressBar. Group/User: {0}" -f $group | Write-Verbose 
+                } Catch {
+                    "Non-Fatal Error with ProgressBar. Group/User: {0}" -f $group | Write-Verbose
                 }
-                
-                if ($_.ObjectClass -eq "Group" ) { 
+
+                if ($_.ObjectClass -eq "Group" ) {
                     Get-DomainGroupMembers -Group $_.SamAccountName -parent $theGroup.Name -Level ($level + 1) -System $System -HomeDomain $WhatIsTheDomain
                 } else {
+                    $SamAN = $_.SamAccountName
                     $UserIsEnabled = try {
-                        (Get-ADUser -Identity $_.SamAccountName -ErrorAction Stop).Enabled
+                            (Get-ADUser -Identity $_.SamAccountName -ErrorAction Stop).Enabled
                     } catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
-                        'Deleted'
+                        try {
+                            (Get-ADComputer -Identity $SamAN -ErrorAction Stop).Enabled
+                        } catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
+                            'Deleted'
+                        } catch {
+                            'Error.ADComputer'
+                        }
                     } catch {
-                        'Error'
+                        'Error.ADUser'
                     }
-                    TheObject -sSam $_.SamAccountName -sName $_.Name -sScope $WhatIsTheDomain -level ($level + 1) -sUserOrGroup "User" -sEnabled $UserIsEnabled -sParent $group -sDN $_.DistinguishedName -sSystem $System
+                    TheObject -sSam $_.SamAccountName -sName $_.Name -sScope $WhatIsTheDomain -level ($level + 1) -sUserOrGroup ($_.ObjectClass) -sEnabled $UserIsEnabled -sParent $group -sDN $_.DistinguishedName -sSystem $System
                 }
             }
         }
@@ -187,14 +194,14 @@ Begin {
             $host.ui.WriteErrorLine(("Group {0} on Computer {1} not found" -f $group, $computername))
             break
         }
-    
+
         $Members = @($ADSIGroup.psbase.Invoke("Members"))
         $TotalMembers = $Members.Count
-        
+
         $Activity = "Getting members of {0} on {1}" -f $group, $computername
         TheObject -sSam $group -level 0 -sName $group -sScope $computername -sUserOrGroup "Group" -sEnabled "" -sParent $Parent -iTotal $TotalMembers -sSystem $System
         $counter = 0
-    
+
         $Members | ForEach-Object {
             Try {
                 $counter ++
@@ -207,7 +214,7 @@ Begin {
 
                 # Check if this member is a group.
                 $isGroup = ([ADSI]$_).InvokeGet("Class")
-    
+
                 if (($Path -contains $computername) -or ($path -contains "NT AUTHORITY")) {
                     $Type = 'Local'
                     $tempDN = $AdsPath
@@ -221,7 +228,7 @@ Begin {
                         }
                     } catch { $tempDN = "Unknown" }
                 }
-    
+
                 if ($isGroup.Contains("Group")) {
                     # Check if this group is local or domain.
                     if ($Type -eq 'Local') {
@@ -254,7 +261,7 @@ Begin {
             [string] $groupname
         )
         #Let's remove invalid filesystem characters and ones we just don't like in filenames
-        $invalidChars = ([IO.Path]::GetInvalidFileNameChars() + "," + ";") -join '' 
+        $invalidChars = ([IO.Path]::GetInvalidFileNameChars() + "," + ";") -join ''
         $re = "[{0}]" -f [RegEx]::Escape($invalidChars)
         $groupname = $groupname -replace $re
         $groupname = $groupname.Replace(" ", "")
@@ -276,26 +283,26 @@ Begin {
 
         $height = [int]( ($($text | Measure-Object -Line).Lines * 22) + 25 )
         if ($Height -lt 350 ) { $height = 350 }
-        
+
         $longest = 0
         foreach ($line in $Text.Split("`n")) {
             $hold = $line.Tostring().Length
             if ($hold -gt $longest) { $longest = $hold }
         }
         $length = [int]( $longest * 12)
-        
+
         $bmp = New-Object System.Drawing.Bitmap $length, $height
-        $font = New-Object System.Drawing.Font Consolas, 14 
-        $brushBg = [System.Drawing.Brushes]::White 
-        $brushFg = [System.Drawing.Brushes]::Black 
-        $graphics = [System.Drawing.Graphics]::FromImage($bmp) 
-        $graphics.FillRectangle($brushBg, 0, 0, $bmp.Width, $bmp.Height) 
-        $graphics.DrawString($Text, $font, $brushFg, 10, 10) 
-        $graphics.Dispose() 
+        $font = New-Object System.Drawing.Font Consolas, 14
+        $brushBg = [System.Drawing.Brushes]::White
+        $brushFg = [System.Drawing.Brushes]::Black
+        $graphics = [System.Drawing.Graphics]::FromImage($bmp)
+        $graphics.FillRectangle($brushBg, 0, 0, $bmp.Width, $bmp.Height)
+        $graphics.DrawString($Text, $font, $brushFg, 10, 10)
+        $graphics.Dispose()
         "Writing picture..." | Write-Verbose
-        $bmp.Save($script:filename) 
+        $bmp.Save($script:filename)
     }
-   
+
     function TheObject {
         param (
             [string] $sSam,
@@ -320,7 +327,7 @@ Begin {
 
         $script:ItemCount += 1
         $Script:TotalAllUsers += $iTotal
-    
+
         $InfoHash = @{
             AccountName       = $sSam
             FullAccountName   = $AccountName
@@ -337,23 +344,23 @@ Begin {
             Hierarchy         = $HierarchyName
         }
         $InfoStack = New-Object -TypeName PSObject -Property $InfoHash
-    
+
         #Add a (hopefully) unique object type name
         $InfoStack.PSTypeNames.Insert(0, "ADGroup.Information")
-    
+
         #Sets the "default properties" when outputting the variable... but really for setting the order
         $defaultProperties = @('FullAccountName', 'FullName', 'Parent', 'Depth')
         $defaultDisplayPropertySet = New-Object System.Management.Automation.PSPropertySet(‘DefaultDisplayPropertySet’, [string[]]$defaultProperties)
         $PSStandardMembers = [System.Management.Automation.PSMemberInfo[]]@($defaultDisplayPropertySet)
         $InfoStack | Add-Member MemberSet PSStandardMembers $PSStandardMembers
-    
+
         if ($raw) {
             $InfoStack
         } else {
             $Script:AllResults += $InfoStack
         }
     }
-    
+
     function GenFormattedOutput {
         param (
             [string] $header,
@@ -437,7 +444,7 @@ Process {
             }
             "Found domain {0}" -f $domain | Write-Verbose
         } catch { $Domain = "Name not found" }
-        
+
         $temp = Get-ADGroup -Filter { objectClass -eq "Group" -and (SamAccountName -eq $group -or Name -eq $group) } -Server $domain
         "Requesteing group members of {0} on {1} domain" -f $group, $Domain | Write-Verbose
         $Activity = "Getting members of {0} on {1} domain" -f $group, $Domain
@@ -469,7 +476,7 @@ END {
     #################################
     ### Clean Up
     #################################
-    
+
     if (Get-Module ActiveDirectory) {
         Write-Verbose "Removing the ActiveDirectory module from memory"
         Remove-Module ActiveDirectory
