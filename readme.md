@@ -7,10 +7,11 @@ Now, how hard could it be to re-write that simple vbscript into Powershell? Ther
 So, long story short: this script will inventory group memberships - both local system and AD - and do it recusively - both local system and AD. 
 
 #### Requires: 
-* PowerShell v4 (lightly tested) or v5 (heavily tested)
+* PowerShell v4 (lightly tested) or v5/5.1 (heavily tested)
 * The PowerShell ActiveDirectory module
   * On Servers, it's a Features (as in Add Roles and Features) under Remote Server Administration Tools->AD DS and AD LDS Tools
   * On Workstations, search Microsoft's site for the RSAT (Remote Server Administration Tools) package - i.e., it's an add-on
+    * I think it's now built-in on Windows 10+
 
 #### Features: 
 * Recursive!

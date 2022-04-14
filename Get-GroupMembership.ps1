@@ -82,32 +82,31 @@ you can output numerous fields as a nice, native PowerShell object - for piping 
 #> 
 
 
-[CmdletBinding(SupportsShouldProcess=$false)]
+[CmdletBinding(SupportsShouldProcess = $false)]
 param ( 
-    [parameter(Mandatory=$false, ValueFromPipeline=$True, ValueFromPipelineByPropertyName=$true)]
-    [Alias('CN','__Server','ComputerName','IPAddress','Name','NetBiosName')]
+    [parameter(Mandatory = $false, ValueFromPipeline = $True, ValueFromPipelineByPropertyName = $true)]
+    [Alias('CN', '__Server', 'ComputerName', 'IPAddress', 'Name', 'NetBiosName')]
     [string[]]$Computer,
     [string] $Domain,
     [string] $group,
     [Alias('Limit')]
-    [ValidateScript({If ($_ -gt 0) { $True } Else { Throw "Depth must be greater than 0" }})]
+    [ValidateScript({ If ($_ -gt 0) { $True } Else { Throw "Depth must be greater than 0" } })]
     [int16] $depth = 7,
-    [Alias('Indent','')]
+    [Alias('Indent', '')]
     [char] $LevelIndicator = "─",
-    [Alias('NoFormat','AsObject','Object','NotText')]
+    [Alias('NoFormat', 'AsObject', 'Object', 'NotText')]
     [switch] $raw = $false,
     [Alias('Save', 'Image', 'Jpg')]
     [switch] $Picture = $false,
     [Alias('Path', 'SaveTo')]
     [ValidateScript({
-        If (Test-Path -Path $_.ToString() -PathType Container) {
-            $true
-        }
-        else {
-            Throw "$_ is not a valid destination folder. Enter in 'c:\directory' format"
-        }
-    })]
-    [string] $folder = $(if ($PSCommandPath)  { (Split-Path -Parent $PSCommandPath) + '\' } else { '.\' } )
+            If (Test-Path -Path $_.ToString() -PathType Container) {
+                $true
+            } else {
+                Throw "$_ is not a valid destination folder. Enter in 'c:\directory' format"
+            }
+        })]
+    [string] $folder = $(if ($PSCommandPath) { (Split-Path -Parent $PSCommandPath) + '\' } else { '.\' } )
 )
 
 Begin {
@@ -116,14 +115,13 @@ Begin {
     [int]$Script:TotalAllUsers = 0
     $Group = (Get-Culture).TextInfo.ToTitleCase($group)
 
-    $folder = (resolve-path $folder).ProviderPath
+    $folder = (Resolve-Path $folder).ProviderPath
     if (-not $folder.EndsWith("\")) { $folder += "\" }
 
-    if (get-module -ListAvailable ActiveDirectory) {
+    if (Get-Module -ListAvailable ActiveDirectory) {
         "Importing the ActiveDirectory Module" | Write-Verbose
         Import-Module ActiveDirectory -Verbose:$false
-    }
-    else {
+    } else {
         Write-Host "Fatal Error: ActiveDirectory Module NOT FOUND" -ForegroundColor Red
         exit
     }
@@ -153,16 +151,20 @@ Begin {
                 $Activity = "Getting members of {0} on {1}" -f $group, $WhatIsTheDomain
                 Try {
                     Write-Progress -Id ($level + 1) -Activity $Activity -PercentComplete (($counter / $TotalMembers ) * 100) -Status ("Found {0}" -f $_.SamAccountName)
-                }
-                Catch { 
+                } Catch { 
                     "Non-Fatal Error with ProgressBar. Group/User: {0}" -f $group | Write-Verbose 
                 }
                 
                 if ($_.ObjectClass -eq "Group" ) { 
-                        Get-DomainGroupMembers -Group $_.SamAccountName -parent $theGroup.Name -Level ($level + 1) -System $System -HomeDomain $WhatIsTheDomain
-                }
-                else {
-                    $UserIsEnabled = (get-aduser -Identity $_.SamAccountName).Enabled
+                    Get-DomainGroupMembers -Group $_.SamAccountName -parent $theGroup.Name -Level ($level + 1) -System $System -HomeDomain $WhatIsTheDomain
+                } else {
+                    $UserIsEnabled = try {
+                        (Get-ADUser -Identity $_.SamAccountName -ErrorAction Stop).Enabled
+                    } catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
+                        'Deleted'
+                    } catch {
+                        'Error'
+                    }
                     TheObject -sSam $_.SamAccountName -sName $_.Name -sScope $WhatIsTheDomain -level ($level + 1) -sUserOrGroup "User" -sEnabled $UserIsEnabled -sParent $group -sDN $_.DistinguishedName -sSystem $System
                 }
             }
@@ -181,8 +183,7 @@ Begin {
 
         try {
             $ADSIGroup = [ADSI]"WinNT://$computername/$group,group"
-        }
-        catch {
+        } catch {
             $host.ui.WriteErrorLine(("Group {0} on Computer {1} not found" -f $group, $computername))
             break
         }
@@ -200,7 +201,7 @@ Begin {
                 $tempDN = ""
                 $Name = ([ADSI]$_).InvokeGet("Name")
                 $AdsPath = (([ADSI]$_).InvokeGet("Adspath"))
-                $Path = $AdsPath.Split('/',[StringSplitOptions]::RemoveEmptyEntries)
+                $Path = $AdsPath.Split('/', [StringSplitOptions]::RemoveEmptyEntries)
 
                 Write-Progress -Id ($level + 1) -Activity $Activity -PercentComplete (($counter / $TotalMembers ) * 100) -Status ("Found {0}" -f $Name)
 
@@ -210,41 +211,35 @@ Begin {
                 if (($Path -contains $computername) -or ($path -contains "NT AUTHORITY")) {
                     $Type = 'Local'
                     $tempDN = $AdsPath
-                } 
-                Else {
+                } Else {
                     $Type = 'Domain'
                     try {
                         if ($isGroup -eq "User") {
-                            $tempDN = (get-aduser $Name).DistinguishedName
+                            $tempDN = (Get-ADUser $Name).DistinguishedName
+                        } else {
+                            $tempDN = (Get-ADGroup $Name).DistinguishedName
                         }
-                        else {
-                            $tempDN = (get-adgroup $Name).DistinguishedName
-                        }
-                    }
-                    catch { $tempDN = "Unknown" }
+                    } catch { $tempDN = "Unknown" }
                 }
     
                 if ($isGroup.Contains("Group")) {
                     # Check if this group is local or domain.
                     if ($Type -eq 'Local') {
-                       # Enumerate members of local group.
-                       Get-LocalGroupMembers $Name $level -System $System
+                        # Enumerate members of local group.
+                        Get-LocalGroupMembers $Name $level -System $System
                     } else {
-                       # Enumerate members of domain group.
+                        # Enumerate members of domain group.
                         $HomeDomain = (Get-ADDomain (($tempDN.Split(",") | ForEach-Object { if ($_ -like "DC=*") { $_ } }) -join ",")).NetBiosName
                         Get-DomainGroupMembers -group $Name -level $level -parent $ADSIGroup.Name -System $System -HomeDomain $HomeDomain
                     }
-                }
-                else {
+                } else {
                     try {
                         $UserFlags = ([ADSI]$AdsPath).InvokeGet("UserFlags")
-                        $enabled = -not [boolean]($UserFlags -band "0x"+"512".PadLeft($UserFlags.ToString().Length, "0"))
-                    }
-                    Catch { $enabled = "Unknown" }
+                        $enabled = -not [boolean]($UserFlags -band "0x" + "512".PadLeft($UserFlags.ToString().Length, "0"))
+                    } Catch { $enabled = "Unknown" }
                     try {
                         $FullName = ([ADSI]$_).InvokeGet("FullName")
-                    }
-                    Catch { $FullName = "" }
+                    } Catch { $FullName = "" }
                     TheObject -sSam $Name -sName $FullName -sScope $path[-2] -level $level -sUserOrGroup "User" -sEnabled $enabled -sParent $group -sDN $tempDN -sSystem $System
                 }
             } Catch {
@@ -254,33 +249,33 @@ Begin {
         Write-Progress -Id ($level + 1) -Activity $Activity -Completed
     }
 
-function GenFileName {
-    param (
-        [string] $groupname
-    )
-    #Let's remove invalid filesystem characters and ones we just don't like in filenames
-    $invalidChars = ([IO.Path]::GetInvalidFileNameChars() + "," + ";") -join '' 
-    $re = "[{0}]" -f [RegEx]::Escape($invalidChars)
-    $groupname = $groupname -replace $re
-    $groupname = $groupname.Replace(" ", "")
+    function GenFileName {
+        param (
+            [string] $groupname
+        )
+        #Let's remove invalid filesystem characters and ones we just don't like in filenames
+        $invalidChars = ([IO.Path]::GetInvalidFileNameChars() + "," + ";") -join '' 
+        $re = "[{0}]" -f [RegEx]::Escape($invalidChars)
+        $groupname = $groupname -replace $re
+        $groupname = $groupname.Replace(" ", "")
 
-    #generate a unique file name (with path included)
-    $x = get-date
-    $TempFile=[string]::format("{0}_{1}{2:d2}{3:d2}-{4:d2}{5:d2}{6:d2}-{7:d4}.{8}",
-        $groupname,
-        $x.year,$x.month,$x.day,$x.hour,$x.minute,$x.second,$x.millisecond,
-        "png")
-    $TempFilePath=[string]::format("{0}{1}",$folder,$TempFile)
-    "Output: {0}" -f $TempFilePath | Write-Verbose
-    return $TempFilePath
-}
+        #generate a unique file name (with path included)
+        $x = Get-Date
+        $TempFile = [string]::format("{0}_{1}{2:d2}{3:d2}-{4:d2}{5:d2}{6:d2}-{7:d4}.{8}",
+            $groupname,
+            $x.year, $x.month, $x.day, $x.hour, $x.minute, $x.second, $x.millisecond,
+            "png")
+        $TempFilePath = [string]::format("{0}{1}", $folder, $TempFile)
+        "Output: {0}" -f $TempFilePath | Write-Verbose
+        return $TempFilePath
+    }
 
     Function DrawIt {
         param ([String]$Text = "Hello World")
         Add-Type -AssemblyName System.Drawing
 
-        $height = [int]( ($($text | Measure-Object -line).Lines * 22) + 25 )
-        if ($Height -lt 350 ) {$height = 350 }
+        $height = [int]( ($($text | Measure-Object -Line).Lines * 22) + 25 )
+        if ($Height -lt 350 ) { $height = 350 }
         
         $longest = 0
         foreach ($line in $Text.Split("`n")) {
@@ -289,13 +284,13 @@ function GenFileName {
         }
         $length = [int]( $longest * 12)
         
-        $bmp = new-object System.Drawing.Bitmap $length,$height
-        $font = new-object System.Drawing.Font Consolas,14 
+        $bmp = New-Object System.Drawing.Bitmap $length, $height
+        $font = New-Object System.Drawing.Font Consolas, 14 
         $brushBg = [System.Drawing.Brushes]::White 
         $brushFg = [System.Drawing.Brushes]::Black 
         $graphics = [System.Drawing.Graphics]::FromImage($bmp) 
-        $graphics.FillRectangle($brushBg,0,0,$bmp.Width,$bmp.Height) 
-        $graphics.DrawString($Text,$font,$brushFg,10,10) 
+        $graphics.FillRectangle($brushBg, 0, 0, $bmp.Width, $bmp.Height) 
+        $graphics.DrawString($Text, $font, $brushFg, 10, 10) 
         $graphics.Dispose() 
         "Writing picture..." | Write-Verbose
         $bmp.Save($script:filename) 
@@ -326,36 +321,35 @@ function GenFileName {
         $script:ItemCount += 1
         $Script:TotalAllUsers += $iTotal
     
-        $InfoHash =  @{
-            AccountName = $sSam
-            FullAccountName = $AccountName
-            FullName = $sName
+        $InfoHash = @{
+            AccountName       = $sSam
+            FullAccountName   = $AccountName
+            FullName          = $sName
             DistinguishedName = $sDN
-            Scope = $sScope
-            Parent = $sParent
-            Depth = $level
-            Class = $sUserorGroup
-            Enabled = $sEnabled
-            Members = $iTotal
-            Item = $script:ItemCount
-            System = $sSystem
-            Hierarchy = $HierarchyName
+            Scope             = $sScope
+            Parent            = $sParent
+            Depth             = $level
+            Class             = $sUserorGroup
+            Enabled           = $sEnabled
+            Members           = $iTotal
+            Item              = $script:ItemCount
+            System            = $sSystem
+            Hierarchy         = $HierarchyName
         }
         $InfoStack = New-Object -TypeName PSObject -Property $InfoHash
     
         #Add a (hopefully) unique object type name
-        $InfoStack.PSTypeNames.Insert(0,"ADGroup.Information")
+        $InfoStack.PSTypeNames.Insert(0, "ADGroup.Information")
     
         #Sets the "default properties" when outputting the variable... but really for setting the order
         $defaultProperties = @('FullAccountName', 'FullName', 'Parent', 'Depth')
-        $defaultDisplayPropertySet = New-Object System.Management.Automation.PSPropertySet(‘DefaultDisplayPropertySet’,[string[]]$defaultProperties)
+        $defaultDisplayPropertySet = New-Object System.Management.Automation.PSPropertySet(‘DefaultDisplayPropertySet’, [string[]]$defaultProperties)
         $PSStandardMembers = [System.Management.Automation.PSMemberInfo[]]@($defaultDisplayPropertySet)
         $InfoStack | Add-Member MemberSet PSStandardMembers $PSStandardMembers
     
         if ($raw) {
             $InfoStack
-        }
-        else {
+        } else {
             $Script:AllResults += $InfoStack
         }
     }
@@ -367,12 +361,11 @@ function GenFileName {
             [bool] $picture = $false
         )
         $outtext = $header
-        $outtext += ($Script:AllResults | format-table -AutoSize Hierarchy, FullName, Enabled, Class, @{Label="Members"; expression={$_.Members}; align='right'} | out-string).Trim("`n").TrimStart("`n")
+        $outtext += ($Script:AllResults | Format-Table -AutoSize Hierarchy, FullName, Enabled, Class, @{Label = "Members"; expression = { $_.Members }; align = 'right' } | Out-String).Trim("`n").TrimStart("`n")
         $outtext += $footer
         if ($picture) {
             DrawIt $outtext
-        }
-        else {
+        } else {
             $outtext
         }
     }
@@ -383,7 +376,7 @@ function GenFileName {
             [string] $ComputerName
         )
         [string] $head = "Script Name: {0}" -f $PSCommandPath | Out-String
-        $head += "Script Date: {0}" -f (get-date (get-item $PSCommandPath).LastWriteTime -UFormat "%a, %b %d, %Y -- %r UTC%Z") | Out-String
+        $head += "Script Date: {0}" -f (Get-Date (Get-Item $PSCommandPath).LastWriteTime -UFormat "%a, %b %d, %Y -- %r UTC%Z") | Out-String
         $head += "" | Out-String
         $head += "Start Time : {0}" -f (Get-Date -UFormat "%a, %b %d, %Y -- %r UTC%Z") | Out-String
         $head += "" | Out-String
@@ -415,13 +408,11 @@ Process {
             Try {
                 if ([ADSI]::Exists("WinNT://$computerName/$group,group")) {
                     Get-LocalGroupMembers $group $computername -Parent "{self}" -System $ComputerName
-                }
-                else {
+                } else {
                     $host.ui.WriteErrorLine(("Group {0} on Computer {1} not found" -f $group, $computername))
                     Write-Progress -Id 0 -Activity ("Complete: members of {0} on {1}" -f $group, $ComputerName) -PercentComplete (100) -Status "Could not find group."
                 }
-            }
-            catch {
+            } catch {
                 $host.ui.WriteErrorLine(("Group {0} on Computer {1} not found" -f $group, $computername))
                 Write-Progress -Id 0 -Activity ("Complete: members of {0} on {1}" -f $group, $ComputerName) -PercentComplete (100) -Status "Could not find group."
                 break
@@ -435,22 +426,19 @@ Process {
 
             $Script:AllResults = $()
         }
-    }
-    else {
+    } else {
         try {
             if ($Domain) {
                 "Testing if domain {0} exists" -f $domain | Write-Verbose
-                $Domain = (get-addomain -Identity $Domain).NetBiosName
-            }
-            else {
+                $Domain = (Get-ADDomain -Identity $Domain).NetBiosName
+            } else {
                 "Testing for local domain" | Write-Verbose
-                $Domain = (get-addomain).NetBiosName
+                $Domain = (Get-ADDomain).NetBiosName
             }
             "Found domain {0}" -f $domain | Write-Verbose
-        }
-        catch { $Domain = "Name not found" }
+        } catch { $Domain = "Name not found" }
         
-        $temp = get-adgroup -filter { objectClass -eq "Group" -and (SamAccountName -eq $group -or Name -eq $group) } -server $domain
+        $temp = Get-ADGroup -Filter { objectClass -eq "Group" -and (SamAccountName -eq $group -or Name -eq $group) } -Server $domain
         "Requesteing group members of {0} on {1} domain" -f $group, $Domain | Write-Verbose
         $Activity = "Getting members of {0} on {1} domain" -f $group, $Domain
         Write-Progress -Id 0 -Activity $Activity -PercentComplete (10) -Status "Starting Group Enumeration Subprocess..."
@@ -459,8 +447,7 @@ Process {
             $header = GenHeader -Group $group -ComputerName $Domain
             if ($Picture) { $filename = GenFileName -groupname ("{0}-{1}" -f $Domain, $group) }
             Get-DomainGroupMembers $temp.SamAccountName -parent "{self}" -System $Domain -HomeDomain $Domain
-        }
-        else {
+        } else {
             $host.ui.WriteErrorLine(("Group {0} in Domain {1} not found" -f $group, $Domain))
             break
         }
@@ -483,7 +470,7 @@ END {
     ### Clean Up
     #################################
     
-    if (get-module ActiveDirectory) {
+    if (Get-Module ActiveDirectory) {
         Write-Verbose "Removing the ActiveDirectory module from memory"
         Remove-Module ActiveDirectory
     }
